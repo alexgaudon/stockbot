@@ -24,19 +24,28 @@ class StockBot(discord.Client):
         if not patterns:
             return
 
-        replies = []
+        embeds = []
         for pattern in patterns:
             if pattern.startswith('?'):
                 query = pattern[1:].strip()
                 if not query:
-                    replies.append("Please provide a search term after [[[?search]]].")
+                    embed = discord.Embed(
+                        title="Missing Search Term",
+                        description="Please provide a search term after [[[?search]]].",
+                        color=discord.Color.red()
+                    )
+                    embeds.append(embed)
                     continue
-                replies.append(await self.search_yahoo_finance(query))
+                embed = await self.search_yahoo_finance(query)
+                embeds.append(embed)
             else:
-                replies.append(await self.get_stock_info_with_search(pattern.upper()))
+                embed = await self.get_stock_info_with_search(pattern.upper())
+                embeds.append(embed)
 
-        if replies:
-            await message.channel.send("\n\n".join(replies))
+        if embeds:
+            # Discord only allows up to 10 embeds per message
+            for i in range(0, len(embeds), 10):
+                await message.channel.send(embeds=embeds[i:i+10])
 
     async def search_yahoo_finance(self, query):
         import aiohttp
@@ -54,31 +63,57 @@ class StockBot(discord.Client):
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers) as resp:
                     if resp.status != 200:
-                        return f"Failed to search Yahoo Finance for: {query} (status: {resp.status})"
+                        embed = discord.Embed(
+                            title="Yahoo Finance Search Failed",
+                            description=f"Failed to search Yahoo Finance for: `{query}` (status: {resp.status})",
+                            color=discord.Color.red()
+                        )
+                        return embed
                     data = await resp.json()
                     quotes = data.get("quotes", [])
                     if not quotes:
-                        return f"No tickers found for search: {query}"
-                    results = [
-                        f"{q.get('symbol', '')}: {q.get('shortname') or q.get('longname', '')}"
-                        for q in quotes[:5]
-                    ]
-                    response = "Search results:\n" + "\n".join(results)
-                    print(f"Sending message: {response}")
-                    return response
+                        embed = discord.Embed(
+                            title="No Results",
+                            description=f"No tickers found for search: `{query}`",
+                            color=discord.Color.orange()
+                        )
+                        return embed
+                    embed = discord.Embed(
+                        title=f"Search results for '{query}'",
+                        color=discord.Color.blue()
+                    )
+                    for q in quotes[:5]:
+                        symbol = q.get('symbol', '')
+                        name = q.get('shortname') or q.get('longname', '')
+                        embed.add_field(name=symbol, value=name or "No name", inline=False)
+                    return embed
         except Exception as e:
             error_message = f"Error searching for '{query}': {e}"
-            print(f"Sending message: {error_message}")
-            return error_message
+            embed = discord.Embed(
+                title="Error",
+                description=error_message,
+                color=discord.Color.red()
+            )
+            return embed
 
     async def get_stock_info_with_search(self, symbol):
         # Try to get stock info, and if not found, search for it
-        info, error = await self._try_get_stock_info(symbol)
-        if info is not None:
-            return info
+        embed, error = await self._try_get_stock_info(symbol)
+        if embed is not None:
+            return embed
         # If not found, search for the symbol
-        search_result = await self.search_yahoo_finance(symbol)
-        return f"Could not find stock info for '{symbol}'.\n{search_result}"
+        search_embed = await self.search_yahoo_finance(symbol)
+        not_found_embed = discord.Embed(
+            title="Stock Not Found",
+            description=f"Could not find stock info for '{symbol}'.",
+            color=discord.Color.orange()
+        )
+        # Return both not found and search result as a single embed with extra info
+        # But since Discord only allows one embed per return, we can add search results as fields
+        if search_embed and search_embed.fields:
+            for field in search_embed.fields:
+                not_found_embed.add_field(name=field.name, value=field.value, inline=False)
+        return not_found_embed
 
     async def _try_get_stock_info(self, symbol):
         try:
@@ -102,11 +137,32 @@ class StockBot(discord.Client):
             price_str = f"{price:.2f}" if price is not None else "N/A"
             name = info.get('longName') or info.get('shortName') or symbol
             currency = info.get('currency', 'USD')
+            exchange = info.get('exchange', 'Unknown')
+            website = info.get('website')
 
-            response = f"{name} ({symbol}): {currency} {price_str}"
-            print(f"Sending message: {response}")
-            return response, None
+            # Calculate daily % change
+            percent_change = None
+            prev_close = info.get('previousClose')
+            if price is not None and prev_close is not None and prev_close != 0:
+                percent_change = ((price - prev_close) / prev_close) * 100
+
+            percent_change_str = f"{percent_change:+.2f}%" if percent_change is not None else "N/A"
+
+            embed = discord.Embed(
+                title=f"{name} ({symbol})",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Price", value=f"{currency} {price_str}", inline=True)
+            embed.add_field(name="Exchange", value=exchange, inline=True)
+            if website:
+                embed.add_field(name="Website", value=website, inline=False)
+            embed.add_field(name="Daily % Change", value=percent_change_str, inline=True)
+            return embed, None
         except Exception as e:
             error_message = f"Error fetching data for {symbol}: {e}"
-            print(f"Sending message: {error_message}")
+            embed = discord.Embed(
+                title="Error",
+                description=error_message,
+                color=discord.Color.red()
+            )
             return None, error_message
