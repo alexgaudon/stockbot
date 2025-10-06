@@ -14,6 +14,8 @@ class StockBot(discord.Client):
         print(f'Logged in as {self.user}')
 
     async def on_message(self, message):
+        if message.author.bot:
+            return
         if message.author == self.user:
             return
         await self.handle_ticker_patterns(message)
