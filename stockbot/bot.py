@@ -3,6 +3,8 @@ import discord
 import re
 import matplotlib.pyplot as plt
 import io
+import pandas as pd
+from datetime import datetime, timedelta
 
 class StockBot(discord.Client):
     def __init__(self):
@@ -157,6 +159,44 @@ class StockBot(discord.Client):
 
             percent_change_str = f"{percent_change:+.2f}%" if percent_change is not None else "N/A"
 
+            # Calculate returns for 1 month, 3 months, 12 months
+            returns = {}
+            now = datetime.now()
+            periods = {
+                "1 Month Return": 30,
+                "3 Month Return": 90,
+                "12 Month Return": 365
+            }
+            try:
+                # Download up to 13 months of daily data for all return calculations
+                hist = stock.history(period="400d")
+                if not hist.empty and 'Close' in hist.columns:
+                    last_close = hist['Close'].iloc[-1]
+                    for label, days in periods.items():
+                        # Find the closest trading day to the target date
+                        target_date = now - timedelta(days=days)
+                        # Find the row in hist with index <= target_date
+                        # hist.index is tz-aware, so convert target_date to same tz if needed
+                        if hasattr(hist.index[0], 'tzinfo') and hist.index[0].tzinfo is not None:
+                            target_date = target_date.replace(tzinfo=hist.index[0].tzinfo)
+                        # Find the closest date in the past
+                        past_prices = hist[hist.index <= pd.Timestamp(target_date)]
+                        if not past_prices.empty:
+                            past_close = past_prices['Close'].iloc[-1]
+                            if past_close != 0:
+                                ret = ((last_close - past_close) / past_close) * 100
+                                returns[label] = f"{ret:+.2f}%"
+                            else:
+                                returns[label] = "N/A"
+                        else:
+                            returns[label] = "N/A"
+                else:
+                    for label in periods:
+                        returns[label] = "N/A"
+            except Exception:
+                for label in periods:
+                    returns[label] = "N/A"
+
             embed = discord.Embed(
                 title=f"{name} ({symbol})",
                 color=discord.Color.green()
@@ -166,14 +206,17 @@ class StockBot(discord.Client):
             if website:
                 embed.add_field(name="Website", value=website, inline=False)
             embed.add_field(name="Daily % Change", value=percent_change_str, inline=True)
+            # Add returns
+            for label in ["1 Month Return", "3 Month Return", "12 Month Return"]:
+                embed.add_field(name=label, value=returns.get(label, "N/A"), inline=True)
 
             # Generate chart
             file = None
             try:
-                hist = stock.history(period=f'{period}mo')
-                if not hist.empty:
+                hist_chart = stock.history(period=f'{period}mo')
+                if not hist_chart.empty:
                     plt.figure(figsize=(10,5))
-                    plt.plot(hist.index, hist['Close'])
+                    plt.plot(hist_chart.index, hist_chart['Close'])
                     plt.title(f'{symbol} Price Over {period} Months')
                     plt.xlabel('Date')
                     plt.ylabel(f'Price ({currency})')
