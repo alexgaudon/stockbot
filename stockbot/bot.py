@@ -1,6 +1,8 @@
 import yfinance as yf
 import discord
 import re
+import matplotlib.pyplot as plt
+import io
 
 class StockBot(discord.Client):
     def __init__(self):
@@ -24,7 +26,7 @@ class StockBot(discord.Client):
         if not patterns:
             return
 
-        embeds = []
+        embeds_and_files = []
         for pattern in patterns:
             if pattern.startswith('?'):
                 query = pattern[1:].strip()
@@ -34,18 +36,28 @@ class StockBot(discord.Client):
                         description="Please provide a search term after [[[?search]]].",
                         color=discord.Color.red()
                     )
-                    embeds.append(embed)
+                    embeds_and_files.append((embed, None))
                     continue
                 embed = await self.search_yahoo_finance(query)
-                embeds.append(embed)
+                embeds_and_files.append((embed, None))
             else:
-                embed = await self.get_stock_info_with_search(pattern.upper())
-                embeds.append(embed)
+                parts = pattern.upper().split(',', 1)
+                symbol = parts[0]
+                period_str = parts[1] if len(parts) > 1 else '3'
+                try:
+                    period = int(period_str)
+                except ValueError:
+                    period = 3
+                embed, file = await self.get_stock_info_with_search(symbol, period)
+                embeds_and_files.append((embed, file))
 
-        if embeds:
-            # Discord only allows up to 10 embeds per message
-            for i in range(0, len(embeds), 10):
-                await message.channel.send(embeds=embeds[i:i+10])
+        if len(embeds_and_files) == 1:
+            embed, file = embeds_and_files[0]
+            await message.channel.send(embed=embed, file=file)
+        else:
+            thread = await message.create_thread(name="Stock Info")
+            for embed, file in embeds_and_files:
+                await thread.send(embed=embed, file=file)
 
     async def search_yahoo_finance(self, query):
         import aiohttp
@@ -96,11 +108,11 @@ class StockBot(discord.Client):
             )
             return embed
 
-    async def get_stock_info_with_search(self, symbol):
+    async def get_stock_info_with_search(self, symbol, period=3):
         # Try to get stock info, and if not found, search for it
-        embed, error = await self._try_get_stock_info(symbol)
+        embed, file = await self._try_get_stock_info(symbol, period)
         if embed is not None:
-            return embed
+            return embed, file
         # If not found, search for the symbol
         search_embed = await self.search_yahoo_finance(symbol)
         not_found_embed = discord.Embed(
@@ -113,9 +125,9 @@ class StockBot(discord.Client):
         if search_embed and search_embed.fields:
             for field in search_embed.fields:
                 not_found_embed.add_field(name=field.name, value=field.value, inline=False)
-        return not_found_embed
+        return not_found_embed, None
 
-    async def _try_get_stock_info(self, symbol):
+    async def _try_get_stock_info(self, symbol, period=3):
         try:
             stock = yf.Ticker(symbol)
             info = stock.info
@@ -132,7 +144,7 @@ class StockBot(discord.Client):
 
             # If still no price and no name, treat as not found
             if (price is None) and not (info.get('longName') or info.get('shortName')):
-                return None, f"Stock not found for symbol: {symbol}"
+                return None, None
 
             price_str = f"{price:.2f}" if price is not None else "N/A"
             name = info.get('longName') or info.get('shortName') or symbol
@@ -157,7 +169,27 @@ class StockBot(discord.Client):
             if website:
                 embed.add_field(name="Website", value=website, inline=False)
             embed.add_field(name="Daily % Change", value=percent_change_str, inline=True)
-            return embed, None
+
+            # Generate chart
+            file = None
+            try:
+                hist = stock.history(period=f'{period}mo')
+                if not hist.empty:
+                    plt.figure(figsize=(10,5))
+                    plt.plot(hist.index, hist['Close'])
+                    plt.title(f'{symbol} Price Over {period} Months')
+                    plt.xlabel('Date')
+                    plt.ylabel(f'Price ({currency})')
+                    buf = io.BytesIO()
+                    plt.savefig(buf, format='png')
+                    buf.seek(0)
+                    file = discord.File(buf, filename='chart.png')
+                    embed.set_image(url='attachment://chart.png')
+                    plt.close()
+            except Exception:
+                pass  # If chart fails, just skip
+
+            return embed, file
         except Exception as e:
             error_message = f"Error fetching data for {symbol}: {e}"
             embed = discord.Embed(
@@ -165,4 +197,4 @@ class StockBot(discord.Client):
                 description=error_message,
                 color=discord.Color.red()
             )
-            return None, error_message
+            return embed, None

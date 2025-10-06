@@ -6,8 +6,11 @@ install:
 dev:
 	uv run python -m stockbot
 
+run: 
+	docker run --env-file .env -it stocky:latest
+	
 build:
-	@echo "No build step for this project"
+	docker build . -t stocky:latest
 
 test:
 	@echo "No tests defined"

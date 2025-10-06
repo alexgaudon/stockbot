@@ -2,7 +2,7 @@
 name = "stockbot"
 version = "0.1.0"
 requires-python = ">=3.13"
-dependencies = ["discord.py", "pydantic", "pydantic-settings", "yfinance", "aiohttp"]
+dependencies = ["discord.py", "pydantic", "pydantic-settings", "yfinance", "aiohttp", "matplotlib"]
 
 [dependency-groups]
 dev = ["ruff"]
