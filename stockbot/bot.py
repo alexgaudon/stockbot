@@ -51,13 +51,8 @@ class StockBot(discord.Client):
                 embed, file = await self.get_stock_info_with_search(symbol, period)
                 embeds_and_files.append((embed, file))
 
-        if len(embeds_and_files) == 1:
-            embed, file = embeds_and_files[0]
+        for embed, file in embeds_and_files:
             await message.channel.send(embed=embed, file=file)
-        else:
-            thread = await message.create_thread(name="Stock Info")
-            for embed, file in embeds_and_files:
-                await thread.send(embed=embed, file=file)
 
     async def search_yahoo_finance(self, query):
         import aiohttp
