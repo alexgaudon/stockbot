@@ -30,33 +30,52 @@ class StockBot(discord.Client):
         if not patterns:
             return
 
-        embeds_and_files = []
+        # Deduplicate patterns while preserving order
+        # For tickers, treat case-insensitively; for searches, case-sensitive
+        seen = set()
+        unique_patterns = []
         for pattern in patterns:
+            # Create a key for deduplication
             if pattern.startswith('?'):
-                query = pattern[1:].strip()
-                if not query:
-                    embed = discord.Embed(
-                        title="Missing Search Term",
-                        description="Please provide a search term after [[[?search]]].",
-                        color=discord.Color.red()
-                    )
-                    embeds_and_files.append((embed, None))
-                    continue
-                embed = await self.search_yahoo_finance(query)
-                embeds_and_files.append((embed, None))
+                # Search queries: deduplicate case-insensitively
+                key = pattern.lower()
             else:
-                parts = pattern.upper().split(',', 1)
-                symbol = parts[0]
-                period_str = parts[1] if len(parts) > 1 else '3'
-                try:
-                    period = int(period_str)
-                except ValueError:
-                    period = 3
-                embed, file = await self.get_stock_info_with_search(symbol, period)
-                embeds_and_files.append((embed, file))
+                # Stock tickers: extract symbol (before comma) and deduplicate case-insensitively
+                symbol = pattern.split(',', 1)[0].upper()
+                key = symbol
+            
+            if key not in seen:
+                seen.add(key)
+                unique_patterns.append(pattern)
 
-        for embed, file in embeds_and_files:
-            await message.channel.send(embed=embed, file=file)
+        async with message.channel.typing():
+            embeds_and_files = []
+            for pattern in unique_patterns:
+                if pattern.startswith('?'):
+                    query = pattern[1:].strip()
+                    if not query:
+                        embed = discord.Embed(
+                            title="Missing Search Term",
+                            description="Please provide a search term after [[[?search]]].",
+                            color=discord.Color.red()
+                        )
+                        embeds_and_files.append((embed, None))
+                        continue
+                    embed = await self.search_yahoo_finance(query)
+                    embeds_and_files.append((embed, None))
+                else:
+                    parts = pattern.upper().split(',', 1)
+                    symbol = parts[0]
+                    period_str = parts[1] if len(parts) > 1 else '3'
+                    try:
+                        period = int(period_str)
+                    except ValueError:
+                        period = 3
+                    embed, file = await self.get_stock_info_with_search(symbol, period)
+                    embeds_and_files.append((embed, file))
+
+            for embed, file in embeds_and_files:
+                await message.channel.send(embed=embed, file=file)
 
     async def search_yahoo_finance(self, query):
         import aiohttp
