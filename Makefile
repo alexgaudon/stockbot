@@ -6,8 +6,8 @@ install:
 dev:
 	uv run python -m stockbot
 
-run: 
-	docker run --env-file .env -it stocky:latest
+run:
+	docker run --env-file .env stocky:latest
 	
 build:
 	docker build . -t stocky:latest
