@@ -247,3 +247,74 @@ class StockService:
         
         return not_found_embed, None
 
+    async def get_stock_brief(self, symbol: str) -> Tuple[Optional[discord.Embed], Optional[discord.File]]:
+        """
+        Get a minimal stock embed with just price and daily percent change.
+        """
+        try:
+            stock = yf.Ticker(symbol)
+            info = stock.info
+
+            price = (
+                info.get('currentPrice')
+                or info.get('regularMarketPrice')
+                or info.get('previousClose')
+            )
+
+            if price is None:
+                hist = stock.history(period='1d')
+                price = hist['Close'].iloc[-1] if not hist.empty else None
+
+            if (price is None) and not (info.get('longName') or info.get('shortName')):
+                return None, None
+
+            name = info.get('longName') or info.get('shortName') or symbol
+            currency = info.get('currency', 'USD')
+
+            percent_change = None
+            prev_close = info.get('previousClose')
+            if price is not None and prev_close is not None and prev_close != 0:
+                percent_change = ((price - prev_close) / prev_close) * 100
+
+            price_str = f"{currency} {price:.2f}" if price is not None else "N/A"
+            percent_change_str = f"{percent_change:+.2f}%" if percent_change is not None else "N/A"
+
+            embed = discord.Embed(
+                title=f"{name} ({symbol})",
+                color=discord.Color.green()
+            )
+            embed.add_field(name="Price", value=price_str, inline=True)
+            embed.add_field(name="Daily % Change", value=percent_change_str, inline=True)
+
+            return embed, None
+        except Exception as e:
+            error_message = f"Error fetching data for {symbol}: {e}"
+            embed = discord.Embed(
+                title="Error",
+                description=error_message,
+                color=discord.Color.red()
+            )
+            return embed, None
+
+    async def get_stock_brief_with_search(self, symbol: str) -> Tuple[discord.Embed, Optional[discord.File]]:
+        """
+        Get minimal stock info, and if not found, search for similar tickers.
+        """
+        embed, file = await self.get_stock_brief(symbol)
+
+        if embed is not None:
+            return embed, file
+
+        search_embed = await self.search_ticker(symbol)
+        not_found_embed = discord.Embed(
+            title="Stock Not Found",
+            description=f"Could not find stock info for '{symbol}'.",
+            color=discord.Color.orange()
+        )
+
+        if search_embed and search_embed.fields:
+            for field in search_embed.fields:
+                not_found_embed.add_field(name=field.name, value=field.value, inline=False)
+
+        return not_found_embed, None
+
