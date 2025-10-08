@@ -9,6 +9,27 @@ from typing import Optional, Tuple, Dict, List
 
 class StockService:
     """Service for fetching and processing stock data"""
+
+    def adjust_for_splits(self, hist: pd.DataFrame, splits: pd.Series) -> pd.DataFrame:
+        """Adjust historical prices for stock splits to make them comparable over time"""
+        if splits.empty:
+            return hist
+
+        # Sort splits by date
+        splits = splits.sort_index()
+
+        # Compute cumulative split ratio (historical prices multiplied by this)
+        cumulative_ratio = splits[::-1].cumprod()[::-1]
+
+        # Create ratio series for all historical dates, forward fill
+        ratio_series = cumulative_ratio.reindex(hist.index, method='ffill').fillna(1)
+
+        # Adjust price columns
+        for col in ['Close', 'High', 'Low', 'Open']:
+            if col in hist.columns:
+                hist[col] *= ratio_series
+
+        return hist
     
     async def search_ticker(self, query: str) -> discord.Embed:
         """Search for tickers on Yahoo Finance"""
@@ -74,7 +95,9 @@ class StockService:
         try:
             stock = yf.Ticker(symbol)
             # Download sufficient historical data (400 days covers up to 13 months)
-            hist = stock.history(period="400d")
+            hist = stock.history(period="400d", auto_adjust=False)
+            splits = stock.splits
+            hist = self.adjust_for_splits(hist, splits)
             
             if hist.empty or 'Close' not in hist.columns:
                 return {period: None for period in periods_months}
@@ -184,7 +207,9 @@ class StockService:
             # Generate chart
             file = None
             try:
-                hist_chart = stock.history(period=f'{chart_period_months}mo')
+                hist_chart = stock.history(period=f'{chart_period_months}mo', auto_adjust=False)
+                splits = stock.splits
+                hist_chart = self.adjust_for_splits(hist_chart, splits)
                 if not hist_chart.empty:
                     plt.figure(figsize=(10, 5))
                     plt.plot(hist_chart.index, hist_chart['Close'])
