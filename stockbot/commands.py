@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from discord import Message
 import discord
 import re
+import time
 from stockbot.stock_service import StockService
 
 
@@ -30,6 +31,8 @@ class MinimalTickerCommand(Command):
         return re.search(r"\[\[\[\s*-\s*([A-Za-z0-9\.-]+)\s*\]\]\]", message.content) is not None
 
     async def execute(self, message: Message) -> None:
+        start_time = time.time()
+        
         if not self.matches(message):
             return
 
@@ -52,6 +55,8 @@ class MinimalTickerCommand(Command):
         async with message.channel.typing():
             for symbol in minimal_symbols:
                 embed, _ = await self.stock_service.get_stock_brief_with_search(symbol)
+                elapsed_time = time.time() - start_time
+                embed.set_footer(text=f"Execution time: {elapsed_time:.3f}s")
                 await message.channel.send(embed=embed)
 
 
@@ -71,6 +76,8 @@ class TickerWithPeriodCommand(Command):
         return False
 
     async def execute(self, message: Message) -> None:
+        start_time = time.time()
+        
         if not self.matches(message):
             return
 
@@ -105,6 +112,8 @@ class TickerWithPeriodCommand(Command):
                     symbol,
                     chart_period_months=period
                 )
+                elapsed_time = time.time() - start_time
+                embed.set_footer(text=f"Execution time: {elapsed_time:.3f}s")
                 await message.channel.send(embed=embed, file=file)
 
 
@@ -126,6 +135,8 @@ class TickerCommand(Command):
         return False
 
     async def execute(self, message: Message) -> None:
+        start_time = time.time()
+        
         if not self.matches(message):
             return
 
@@ -153,8 +164,12 @@ class TickerCommand(Command):
         async with message.channel.typing():
             for query in queries:
                 embed = await self.stock_service.search_ticker(query)
+                elapsed_time = time.time() - start_time
+                embed.set_footer(text=f"Execution time: {elapsed_time:.3f}s")
                 await message.channel.send(embed=embed)
 
             for symbol in symbols:
                 embed, file = await self.stock_service.get_stock_info_with_search(symbol)
+                elapsed_time = time.time() - start_time
+                embed.set_footer(text=f"Execution time: {elapsed_time:.3f}s")
                 await message.channel.send(embed=embed, file=file)
