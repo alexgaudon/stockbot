@@ -4,6 +4,7 @@ import discord
 import re
 import time
 from stockbot.stock_service import StockService
+from stockbot.views import StockReportView, MinimalStockView
 
 
 class Command(ABC):
@@ -57,7 +58,8 @@ class MinimalTickerCommand(Command):
                 embed, _ = await self.stock_service.get_stock_brief_with_search(symbol)
                 elapsed_time = time.time() - start_time
                 embed.set_footer(text=f"Execution time: {elapsed_time:.3f}s")
-                await message.channel.send(embed=embed)
+                view = MinimalStockView(self.stock_service, symbol)
+                await message.channel.send(embed=embed, view=view)
 
 
 class TickerWithPeriodCommand(Command):
@@ -114,7 +116,8 @@ class TickerWithPeriodCommand(Command):
                 )
                 elapsed_time = time.time() - start_time
                 embed.set_footer(text=f"Execution time: {elapsed_time:.3f}s")
-                await message.channel.send(embed=embed, file=file)
+                view = StockReportView(self.stock_service, symbol, chart_period_months=period)
+                await message.channel.send(embed=embed, file=file, view=view)
 
 
 class TickerCommand(Command):
@@ -172,4 +175,5 @@ class TickerCommand(Command):
                 embed, file = await self.stock_service.get_stock_info_with_search(symbol)
                 elapsed_time = time.time() - start_time
                 embed.set_footer(text=f"Execution time: {elapsed_time:.3f}s")
-                await message.channel.send(embed=embed, file=file)
+                view = StockReportView(self.stock_service, symbol, chart_period_months=3)
+                await message.channel.send(embed=embed, file=file, view=view)
